@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 
 METHOD_COLORS={"collaborative":"#2563EB","local_only_any":"#64748B","local_only_per_node_average":"#94A3B8","majority_vote":"#D97706","majority_vote_observers":"#7C3AED"}
-METHOD_LABELS={"collaborative":"Collaborative (trust-weighted)","local_only_any":"Local only (any node)","local_only_per_node_average":"Local only (per-node average)","majority_vote":"Majority vote (all nodes)","majority_vote_observers":"Majority vote (observers)"}
+METHOD_LABELS={"collaborative":"Collaborative (two-peer rule)","local_only_any":"Local only (any node)","local_only_per_node_average":"Local only (per-node average)","majority_vote":"Majority vote (all nodes)","majority_vote_observers":"Majority vote (observers)"}
 DISPLAY={"tp":"True positives","tn":"True negatives","fp":"False positives","fn":"False negatives","precision":"Precision","recall":"Recall","f1":"F1 score","accuracy":"Accuracy","false_positive_rate":"False positive rate","mean":"Mean","std":"Standard deviation"}
 
 def trust_history_frame(trust_history,nodes,observer):
@@ -51,12 +51,15 @@ def metric_frame(result):
         rows.append(row)
     return pd.DataFrame(rows)
 
-def comparison_chart(result,metrics=("f1","false_positive_rate"),title="Method comparison"):
+def comparison_chart(result,metrics=("f1","false_positive_rate"),title="Method comparison",methods=None):
     rows=[]
-    for method,values in result["classification"].items():
+    selected=methods or result["classification"].keys()
+    for method in selected:
+        values=result["classification"][method]
         for metric in metrics:
             if metric in values: rows.append({"Method":METHOD_LABELS.get(method,method),"Metric":DISPLAY.get(metric,metric),"Value":values[metric]})
-    fig=px.bar(pd.DataFrame(rows),x="Value",y="Metric",color="Method",color_discrete_map={METHOD_LABELS[k]:v for k,v in METHOD_COLORS.items()},orientation="h",text_auto=".3f",barmode="group")
+    frame=pd.DataFrame(rows)
+    fig=px.bar(frame,x="Value",y="Metric",color="Method",color_discrete_map={METHOD_LABELS[k]:v for k,v in METHOD_COLORS.items()},orientation="h",text_auto=".3f",barmode="group")
     fig.update_layout(title=None,barmode="group",height=max(330,46*len(metrics)),margin={"l":18,"r":45,"t":15,"b":55}); fig.update_traces(textposition="outside",cliponaxis=False)
     return fig
 

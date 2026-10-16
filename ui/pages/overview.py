@@ -35,5 +35,5 @@ if result is not None:
     summary[2].metric("Alerts sent / validated",f"{result['alert_delivery']['alerts_transmitted']:,} / {result['alert_delivery']['validated_alerts_received']:,}",help="Alert transmissions and authenticated, accepted alert receipts.")
     summary[3].metric("Rejected messages and frames",f"{sum(result.get('rejection_counts',{}).values()):,}",help="Rejected messages and malformed frames counted by reason.")
     with card("Baseline comparison"):
-        st.plotly_chart(comparison_chart(result,("precision","recall","f1","false_positive_rate"),"Local-only vs collaborative detection"),width="stretch")
+        st.plotly_chart(comparison_chart(result,("precision","recall","f1","false_positive_rate"),"Local-only vs collaborative detection",("local_only_any","collaborative")),width="stretch")
         st.write(summary_sentence(result))

@@ -14,7 +14,7 @@ if result is not None:
             score=result["classification"][method]
             rows.append({"Method":label, "Precision":score["precision"], "Recall":score["recall"], "F1":score["f1"], "False-positive rate":score["false_positive_rate"]})
         dataframe(pd.DataFrame(rows), height=180)
-        st.plotly_chart(comparison_chart(result, ("precision", "recall", "f1", "false_positive_rate"), "Detection results"), width="stretch")
+        st.plotly_chart(comparison_chart(result, ("precision", "recall", "f1", "false_positive_rate"), "Detection results", ("local_only_any", "collaborative")), width="stretch")
     with card("Security checks"):
         rejected=sum(result.get("rejection_counts", {}).values())
         a, b, c = st.columns(3)

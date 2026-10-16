@@ -1,0 +1,7 @@
+streamlit==1.66.0
+pandas
+plotly
+pytest
+pytest-asyncio
+psutil
+cryptography

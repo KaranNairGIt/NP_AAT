@@ -1,16 +1,16 @@
 {
   "name": "CIDS reference configuration",
   "nodes": 4,
-  "scenario": "distributed",
+  "scenario": "all",
   "seed": 7,
   "seed_count": 5,
-  "duration_seconds": 120,
+  "duration_seconds": 240,
   "simulation_speedup": 100,
   "rate_threshold": 6,
   "reporting_threshold": 0.5,
   "correlation_window_seconds": 15,
-  "decision_threshold": 2,
+  "decision_threshold": 0.5,
   "min_peer_sources": 2,
   "tls": false,
-  "threshold_provenance": "The classroom demonstration uses a fixed four-node lab. A local alert decides immediately; otherwise two distinct authenticated peers must agree."
+  "threshold_provenance": "The decision threshold 0.5 and two-source quorum are the unchanged reference point from the sweep grid; they were not selected or adjusted to improve results. The local rate threshold remains 6."
 }

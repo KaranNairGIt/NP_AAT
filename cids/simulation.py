@@ -37,29 +37,35 @@ async def _warmup_mesh(nodes, ports, settings):
     return results
 
 async def _inject_faults(settings,nodes,ports,keys,clock,scenario,stop_event=None):
-    active=scenario in ("all","invalid_message")
+    active=scenario in ("all","misleading_peer","duplicate_delayed","replay","invalid_messages")
     if not active: return None
     if not await _wait_until(clock,FAULT_START,stop_event): return None
     src=nodes["node-0"]; dst="node-1"; port=ports[dst]
-    if False:
+    if scenario in ("all","misleading_peer"):
         watch_time=clock.now()
         await nodes[dst].submit(Event("fault-watch-node-1",watch_time,dst,"synthetic-fault-target","benign_observation",{}))
         await nodes[dst].event_queue.join()
     fault_start=clock.now()
     alert=Alert(1,"fault-alert-1","fault-event","node-0",clock.now(),"port_probe","synthetic-fault-target",4,.9,"synthetic fault-injection evidence")
     sign(alert,keys["node-0"]); payload=asdict(alert)
-    if scenario in ("all","invalid_message"):
+    if scenario in ("all","misleading_peer"): await src.transport.send(port,src.id,payload)
+    if scenario in ("all","duplicate_delayed","replay"):
+        await src.transport.send(port,src.id,payload); await src.transport.send(port,src.id,payload)
+    if scenario in ("all","duplicate_delayed"):
+        delayed=Alert(1,"fault-alert-delayed","fault-event-delayed","node-0",clock.now()-settings.freshness_seconds-1,"port_probe","synthetic-fault-target",3,.8,"synthetic delayed alert")
+        sign(delayed,keys["node-0"]); await src.transport.send(port,src.id,asdict(delayed))
+    if scenario in ("all","invalid_messages"):
         bad=asdict(alert); bad["alert_id"]="bad-signature"; bad["signature"]="0"*64
         await src.transport.send(port,src.id,bad)
         for raw,declared in ((b"",0),(b"{bad-json",None),(b"\xff",None),(b"x"*(settings.max_frame_bytes+1),None),(b"{}",5)):
             await src.transport.send_frame(port,src.id,raw,declared)
-    return None
+    return {"incident_id":"inc-false-peer-alert","target_id":"synthetic-fault-target","event_type":"port_probe","start_time":fault_start,"end_time":fault_start+10.0,"is_attack":False}
 
 async def run(settings,scenario="all",stop_event=None,feed_sink=None):
     settings.validate()
     # The reference schedule is fixed in simulation time. Extend a short request
     # so every evaluation unit fits; never compress or silently truncate it.
-    schedule=incidents(scenario,settings.duration_seconds,include_fault=False)
+    schedule=incidents(scenario,settings.duration_seconds,include_fault=scenario in ("all","misleading_peer","duplicate_delayed","replay","invalid_messages","offline_peer"))
     scheduled_end=max([float(item["end_time"]) for item in schedule]+[0.0])
     settings.duration_seconds=max(settings.duration_seconds,scheduled_end)
     keys=settings.secrets(); node_ids=[f"node-{i}" for i in range(settings.node_count)]; nodes={}; ports={}; clock=SimulationClock(settings.speedup); process=None
@@ -76,7 +82,7 @@ async def run(settings,scenario="all",stop_event=None,feed_sink=None):
         clock.reset()
         simulation_started=time.perf_counter()
         events=generate(settings.seed,settings.node_count,scenario,settings.duration_seconds)
-        offline_id=None
+        offline_id=node_ids[-1] if scenario in ("all","offline_peer") else None
         topology_history=[]
         edge_states={}
         for i,a in enumerate(node_ids):
@@ -124,6 +130,7 @@ async def run(settings,scenario="all",stop_event=None,feed_sink=None):
         memory=sum(resource_samples)/len(resource_samples) if resource_samples else None
         peak_memory=max(resource_samples) if resource_samples else None
         truths=incidents(scenario,settings.duration_seconds,include_fault=False)
+        if fault_incident is not None: truths.append(fault_incident)
         all_decisions=[decision for node in nodes.values() for decision in node.decisions]
         local_decisions={node_id:node.local_decisions for node_id,node in nodes.items()}
         local_events={node_id:[event for observed in node.local_events.values() for event in observed] for node_id,node in nodes.items()}
@@ -155,17 +162,17 @@ async def run(settings,scenario="all",stop_event=None,feed_sink=None):
         topology=[{"source":a,"target":b,"status":edge_states[(a,b)]} for i,a in enumerate(node_ids) for b in node_ids[i+1:]]
         trust_history=[{"observer_id":node.id,"peer_id":peer,**update} for node in nodes.values() for peer,state in node.trust.states.items() for update in state.history]
         feed=sorted([item for node in nodes.values() for item in node.feed],key=lambda x:x["simulation_time"])
-        injected_watch_events=0
-        return {"scenario":scenario,"seed":settings.seed,"duration_seconds":settings.duration_seconds,"grace_period_seconds":settings.grace_period_seconds,"correlation_window_seconds":settings.correlation_window,"rate_threshold":settings.rate_threshold,"reporting_threshold":settings.reporting_threshold,"decision_threshold":settings.min_peer_sources,"min_peer_sources":settings.min_peer_sources,"events":len(events)+injected_watch_events,"node_event_counts":{node.id:sum(len(observed) for observed in node.local_events.values()) for node in nodes.values()},"node_alert_counts":{node.id:len(node.local) for node in nodes.values()},"nodes":node_ids,"node_status":status,"ports":ports,"topology":topology,"topology_history":topology_history,"warmup":[{"source":a,"target":b,"status":state} for (a,b),state in warmup.items()],"alerts":sum(len(node.local) for node in nodes.values()),"messages_transmitted":tx_frames,"failed_sends":failed_sends,"received":validated_rx,"messages_received":rx_frames,"alert_delivery":delivery,"decisions":len(all_decisions),"incidents":truths,"decision_table":evaluation["decision_table"],"latency_table":evaluation["latency_table"],"classification":evaluation["classification"],"classification_std":evaluation["classification_std"],"per_node_classification":evaluation["per_node_classification"],"operational":ops,"fault_scenario":scenario in ("all","invalid_message"),"rejections":rejections,"rejection_counts":rejection_counts,"feed":feed,"stopped":stopped}
+        injected_watch_events=1 if scenario in ("all","misleading_peer") and not stopped else 0
+        return {"scenario":scenario,"seed":settings.seed,"duration_seconds":settings.duration_seconds,"grace_period_seconds":settings.grace_period_seconds,"correlation_window_seconds":settings.correlation_window,"rate_threshold":settings.rate_threshold,"reporting_threshold":settings.reporting_threshold,"decision_threshold":settings.quorum_weight,"min_peer_sources":settings.min_peer_sources,"misleading_peer_weighted_support":misleading_support,"misleading_peer_margin":misleading_support-settings.quorum_weight,"events":len(events)+injected_watch_events,"node_event_counts":{node.id:sum(len(observed) for observed in node.local_events.values()) for node in nodes.values()},"node_alert_counts":{node.id:len(node.local) for node in nodes.values()},"nodes":node_ids,"node_status":status,"ports":ports,"topology":topology,"topology_history":topology_history,"warmup":[{"source":a,"target":b,"status":state} for (a,b),state in warmup.items()],"alerts":sum(len(node.local) for node in nodes.values()),"messages_transmitted":tx_frames,"failed_sends":failed_sends,"received":validated_rx,"messages_received":rx_frames,"alert_delivery":delivery,"decisions":len(all_decisions),"incidents":truths,"decision_table":evaluation["decision_table"],"latency_table":evaluation["latency_table"],"classification":evaluation["classification"],"classification_std":evaluation["classification_std"],"per_node_classification":evaluation["per_node_classification"],"operational":ops,"fault_scenario":scenario in ("all","misleading_peer","duplicate_delayed","replay","invalid_messages","offline_peer"),"misleading_peer_id":"node-0" if scenario in ("all","misleading_peer") else None,"rejections":rejections,"rejection_counts":rejection_counts,"trust":{node.id:{peer:state.score for peer,state in node.trust.states.items()} for node in nodes.values()},"trust_history":trust_history,"feed":feed,"stopped":stopped}
     finally:
         await asyncio.gather(*(node.stop() for node in nodes.values()),return_exceptions=True)
         await asyncio.gather(*(node.close() for node in nodes.values()),return_exceptions=True)
 
 def main():
     parser=argparse.ArgumentParser(description="localhost-only synthetic collaborative IDS simulation")
-    parser.add_argument("--seed",type=int,default=7); parser.add_argument("--speedup",type=float,default=100); parser.add_argument("--port",type=int,default=0); parser.add_argument("--scenario",choices=("all",)+SCENARIOS,default="all"); parser.add_argument("--duration",type=float,default=120); args=parser.parse_args()
-    settings=Settings(seed=args.seed,speedup=args.speedup,base_port=args.port,duration_seconds=args.duration)
-    if False: result={}
+    parser.add_argument("--nodes",type=int,default=4); parser.add_argument("--seed",type=int,default=7); parser.add_argument("--speedup",type=float,default=100); parser.add_argument("--port",type=int,default=0); parser.add_argument("--scenario",choices=("all",)+SCENARIOS,default="all"); parser.add_argument("--experiments",action="store_true"); parser.add_argument("--duration",type=float,default=180); args=parser.parse_args()
+    settings=Settings(node_count=args.nodes,seed=args.seed,speedup=args.speedup,base_port=args.port,duration_seconds=args.duration)
+    if args.experiments: result=asyncio.run(__import__("cids.experiments",fromlist=["run_experiments"]).run_experiments(count=5,start_seed=args.seed,scenario=args.scenario,nodes=args.nodes))
     else: result=asyncio.run(run(settings,args.scenario))
     print(json.dumps(result,indent=2))
 if __name__=="__main__": main()

@@ -10,7 +10,7 @@ class Settings:
     rate_threshold:int=6; window_seconds:float=10.0; freshness_seconds:float=60.0
     correlation_window:float=15.0; quorum_weight:float=0.5; min_peer_sources:int=2; self_trust:float=1.0
     reporting_threshold:float=0.5; trust_decrease_step:float=0.1; grace_period_seconds:float=5.0
-    duration_seconds:float=120.0; max_frame_bytes:int=65536; socket_timeout_seconds:float=0.1
+    duration_seconds:float=240.0; max_frame_bytes:int=65536; socket_timeout_seconds:float=0.1
     tls:bool=False; certfile:str="certs/localhost.crt"; keyfile:str="certs/localhost.key"
     node_secrets:dict=field(default_factory=dict)
     def validate(self):
